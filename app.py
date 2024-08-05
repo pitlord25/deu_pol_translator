@@ -213,7 +213,7 @@ with tabs[0]:
     new_instruction = st.text_input("Instruction", key='instruction1')
     if st.button("Give feedback", key="button1"):
         add_feedback(connection, new_instruction)
-        # st.success("Rule added successfully!")
+        st.success("Feedback added successfully!")
         # st.rerun()
 
 with tabs[1]:
@@ -230,7 +230,7 @@ with tabs[1]:
 
             gb = GridOptionsBuilder.from_dataframe(df_rules)
             gb.configure_pagination()
-            gb.configure_column("Control", editable=False, cellRenderer='function(params) { return `<button>Edit</button><button>Delete</button>` }')
+            # gb.configure_column("Control", editable=False, cellRenderer='function(params) { return `<button>Edit</button><button>Delete</button>` }')
             gridOptions = gb.build()
 
             response = AgGrid(
