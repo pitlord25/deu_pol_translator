@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_modal import Modal
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 import pandas as pd
 from dotenv import load_dotenv
@@ -33,6 +34,12 @@ def create_table_if_not_exists(connection):
             instruction TEXT NOT NULL
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tbl_feedbacks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            `feedback` TEXT NOT NULL
+        )
+    """)
     connection.commit()
     cursor.close()
 
@@ -43,13 +50,25 @@ def get_rules(connection):
     cursor.close()
     return rows
 
+def get_feedbacks(connection):
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM tbl_feedbacks")
+    rows = cursor.fetchall()
+    cursor.close()
+    return rows
 
 def add_rule(connection, case, instruction):
     cursor = connection.cursor()
     cursor.execute("INSERT INTO tbl_rules (`case`, instruction) VALUES (%s, %s)", (case, instruction))
     connection.commit()
     cursor.close()
-
+    
+def add_feedback(connection, feedback):
+    cursor = connection.cursor()
+    cursor.execute("INSERT INTO tbl_feedbacks (`feedback`) VALUES (%s)", (feedback, ))
+    connection.commit()
+    cursor.close()
+ 
 def update_rule(connection, rule_id, case, instruction):
     cursor = connection.cursor()
     cursor.execute("UPDATE tbl_rules SET `case` = %s, instruction = %s WHERE id = %s", (case, instruction, rule_id))
@@ -95,6 +114,24 @@ def delete_rule_dialog(connection):
             st.experimental_rerun()
         if st.button("Cancel"):
             st.session_state['show_delete_dialog'] = False
+            
+def load_text_from_file(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            text = file.read()
+        return text
+    except FileNotFoundError:
+        return f"The file {file_path} does not exist."
+    except Exception as e:
+        return str(e)
+    
+def save_text_to_file(file_path, text):
+    try:
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(text)
+        return f"Text successfully saved to {file_path}."
+    except Exception as e:
+        return str(e)
 
 # Load environment variables
 load_dotenv()
@@ -118,27 +155,17 @@ connection = create_connection()
 st.title("Basic Web App Interface")
 
 # Define tabs
-tabs = st.tabs(["Translator", "Rules"])
-prompt = """
-Jesteś ekspertem w dziedzinie tłumaczeń z języka niemieckiego na język polski.
+tabs = st.tabs(["Translator", "Rules", "Main Prompt"])
+file_path = 'system_prompt.txt'
+prompt = load_text_from_file(file_path)
 
-Poniżej opis po niemiecku dotyczący stanu pacjenta (starszej osoby z Niemiec), dla którego szukamy opiekunki. 
-
-Przetłumacz ten opis na język Polski. Opis będzie prezentowany do potencjalnej opiekunki, dlatego napisz go tak jakbyś prezentował tą ofertę pracy do niej. 
-
-Powinieneś śledzić:
-- Nie pisz o zleceniu w osobie trzeciej np. 
-- "Oferta mówi o" albo "Zlecenie jest". Zadbaj o zgodność logiczną, pisz tylko to co wiesz i jest prawdą w źródle. 
--Opis ma mieć charakter ciągły, a nie punktów:
-
-Dodatkowe zasady, których należy przestrzegać:
-
-"""
+modal = Modal(key="Feedback_Modal", title="feedback")
 
 with tabs[0]:
     st.header("Translator")
     text = st.text_area("Enter text to translate:")
     # target_language = st.selectbox("Select target language:", ["es", "fr", "de", "zh"])
+    
     if st.button("Translate"):
         if text:
             # response = openai.Completion.create(
@@ -148,15 +175,23 @@ with tabs[0]:
             # )
             # translation = response.choices[0].text.strip()
             rawRules = get_rules(connection)
-            rulesContent = ""
+            rulesContent = "Dodatkowe zasady, których należy przestrzegać:\n"
             idx = 1
             for rawRule in rawRules :
                 rulesContent += f"Sprawa {idx}: {rawRule['case']} -> {rawRule['instruction']}\n"
+                idx = idx + 1
+                
+            rawFeedbacks = get_feedbacks(connection)
+            feedbacksContent = "Noted Feedbacks:"
+            idx = 1
+            for rawFeedback in rawFeedbacks :
+                feedbacksContent += f"Sprawa {idx}: {rawFeedback['feedback']}\n"
+                idx = idx + 1
             
             content = [
                 {
                     "type" : "text",
-                    "text" : prompt + text + rulesContent
+                    "text" : prompt + text + rulesContent + feedbacksContent
                 }
             ]
             translation = openAIClient.chat.completions.create(
@@ -171,6 +206,15 @@ with tabs[0]:
             st.write("Translation:", translation.choices[0].message.content)
         else:
             st.write("Please enter text to translate.")
+        
+    # Add new rule
+    st.write("Add New Feedback")
+    # new_case = st.text_input("Case", key="input1")
+    new_instruction = st.text_input("Instruction", key='instruction1')
+    if st.button("Give feedback", key="button1"):
+        add_feedback(connection, new_instruction)
+        # st.success("Rule added successfully!")
+        # st.rerun()
 
 with tabs[1]:
     st.header("Rules")
@@ -230,14 +274,22 @@ with tabs[1]:
         connection.close()
     else:
         st.error("Failed to connect to the database.")
+        
+with tabs[2]:
+    st.header("Set System Prompt")
+    prompt = st.text_area("Enter text to translate:", value=prompt, key="prompt")
+    # target_language = st.selectbox("Select target language:", ["es", "fr", "de", "zh"])
+    
+    if st.button("Save prompt", key="save prompt"):
+        save_text_to_file(file_path, prompt)
+        
 # You can add database connection and operations here using DB_USER, DB_PASSWORD, DB_HOST, DB_NAME
 
 # Function to run the Streamlit app on the specified port
-
+# with tabs[2]:
 
 def run_streamlit():
-    subprocess.run(["streamlit", "run", "app.py",
-                   "--server.port", STREAMLIT_PORT])
+    subprocess.run(["streamlit", "run", "app.py", "--server.port", STREAMLIT_PORT])
 
 
 if __name__ == "__main__":
