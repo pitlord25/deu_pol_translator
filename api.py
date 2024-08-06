@@ -4,7 +4,8 @@ import os
 from openai import OpenAI
 import mysql.connector
 from mysql.connector import Error
-
+from dotenv import load_dotenv
+load_dotenv()
 app = FastAPI()
 
 # Function to create a database connection
